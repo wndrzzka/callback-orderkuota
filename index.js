@@ -5,7 +5,7 @@ const mongoose = require('mongoose');
 require('dotenv').config();
 
 const app = express();
-app.use(express.json()); // Middleware untuk parsing JSON dari body callback
+app.use(express.json());
 
 // Skema Saldo (Schema untuk saldo pengguna)
 const saldoSchema = new mongoose.Schema({
@@ -23,19 +23,18 @@ mongoose.connect(process.env.MONGODB_URI, {
   .then(() => console.log('Connected to MongoDB'))
   .catch(err => {
     console.error('Database connection error:', err);
-    process.exit(1); // Exit jika tidak bisa terhubung ke DB
+    process.exit(1);
   });
 
-// Fungsi untuk update saldo pengguna
 const updateSaldo = async (userId, amount) => {
   try {
     const userSaldo = await Saldo.findOne({ userId });
     if (userSaldo) {
-      userSaldo.balance += amount; // Tambah saldo jika user ada
+      userSaldo.balance += amount;
       await userSaldo.save();
       console.log(`Saldo user ${userId} berhasil diupdate: +Rp ${amount}`);
     } else {
-      const newSaldo = new Saldo({ userId, balance: amount }); // Buat data saldo baru
+      const newSaldo = new Saldo({ userId, balance: amount });
       await newSaldo.save();
       console.log(`Saldo user ${userId} berhasil dibuat: Rp ${amount}`);
     }
@@ -53,13 +52,11 @@ app.post('/callback', async (req, res) => {
   }
 
   if (status === 'PAID') {
-    const userId = external_id.split('_')[0]; // Ambil userId dari external_id
+    const userId = external_id.split('_')[0];
 
     try {
-      // Update saldo pengguna
       await updateSaldo(userId, amount);
 
-      // Kirim notifikasi ke owner (misalnya lewat Telegram)
       const message = `<b>[Deposit QRIS]</b>\n\n` +
                       `<b>🔹 User ID:</b> <code>${userId}</code>\n` +
                       `<b>🔹 Amount:</b> Rp ${amount}\n\n` +
