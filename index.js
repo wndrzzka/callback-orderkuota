@@ -1,12 +1,13 @@
-// callback.js
+// callback-server.js
+const express = require('express');
 const axios = require('axios');
 const mongoose = require('mongoose');
+require('dotenv').config();
 
-mongoose.connect(process.env.MONGODB_URI)
-  .then(() => console.log('Connected to MongoDB'))
-  .catch(err => console.error('Database connection error:', err));
+const app = express();
+app.use(express.json()); // Middleware untuk parsing JSON dari body callback
 
-// Skema Saldo
+// Skema Saldo (Schema untuk saldo pengguna)
 const saldoSchema = new mongoose.Schema({
   userId: { type: String, required: true, unique: true },
   balance: { type: Number, default: 0 },
@@ -14,43 +15,74 @@ const saldoSchema = new mongoose.Schema({
 
 const Saldo = mongoose.model('Saldo', saldoSchema);
 
-// Update or create saldo
+// Koneksi ke MongoDB
+mongoose.connect(process.env.MONGODB_URI, {
+  useNewUrlParser: true,
+  useUnifiedTopology: true,
+})
+  .then(() => console.log('Connected to MongoDB'))
+  .catch(err => {
+    console.error('Database connection error:', err);
+    process.exit(1); // Exit jika tidak bisa terhubung ke DB
+  });
+
+// Fungsi untuk update saldo pengguna
 const updateSaldo = async (userId, amount) => {
   try {
     const userSaldo = await Saldo.findOne({ userId });
     if (userSaldo) {
-      userSaldo.balance += amount; // Add to balance if user exists
+      userSaldo.balance += amount; // Tambah saldo jika user ada
       await userSaldo.save();
+      console.log(`Saldo user ${userId} berhasil diupdate: +Rp ${amount}`);
     } else {
-      const newSaldo = new Saldo({ userId, balance: amount }); // Create new saldo entry
+      const newSaldo = new Saldo({ userId, balance: amount }); // Buat data saldo baru
       await newSaldo.save();
+      console.log(`Saldo user ${userId} berhasil dibuat: Rp ${amount}`);
     }
-    console.log(`Saldo user ${userId} berhasil diupdate: +Rp ${amount}`);
   } catch (error) {
     console.error('Error saat update saldo:', error);
   }
 };
 
-const handleCallback = async (req, res) => {
+// Endpoint callback yang akan dipanggil oleh sistem pembayaran
+app.post('/callback', async (req, res) => {
   const { external_id, status, amount } = req.body;
 
+  if (!external_id || !status || !amount) {
+    return res.status(400).send('Missing required fields in callback');
+  }
+
   if (status === 'PAID') {
-    const userId = external_id.split('_')[0];
+    const userId = external_id.split('_')[0]; // Ambil userId dari external_id
 
-    await updateSaldo(userId, amount);
+    try {
+      // Update saldo pengguna
+      await updateSaldo(userId, amount);
 
-    const message = `<b>[Deposit QRIS]</b>\n\n` +
-                    `<b>🔹 User ID:</b> <code>${userId}</code>\n` +
-                    `<b>🔹 Amount:</b> Rp ${amount}\n\n` +
-                    `<i>Saldo berhasil ditambahkan.</i>`;
-    await axios.post(`https://api.telegram.org/bot${process.env.TOKEN}/sendMessage`, {
-      chat_id: process.env.OWNER_ID,
-      text: message,
-      parse_mode: 'HTML'
-    });
+      // Kirim notifikasi ke owner (misalnya lewat Telegram)
+      const message = `<b>[Deposit QRIS]</b>\n\n` +
+                      `<b>🔹 User ID:</b> <code>${userId}</code>\n` +
+                      `<b>🔹 Amount:</b> Rp ${amount}\n\n` +
+                      `<i>Saldo berhasil ditambahkan.</i>`;
+      await axios.post(`https://api.telegram.org/bot${process.env.TOKEN}/sendMessage`, {
+        chat_id: process.env.OWNER_ID,
+        text: message,
+        parse_mode: 'HTML',
+      });
 
-    res.send('Callback diterima');
+      res.send('Callback diterima');
+    } catch (error) {
+      console.error('Error saat memproses callback:', error);
+      res.status(500).send('Internal server error');
+    }
   } else {
+    console.log(`Status pembayaran bukan PAID: ${status}`);
     res.send('Status bukan PAID');
   }
-};
+});
+
+// Menjalankan server
+const port = process.env.PORT || 3000;
+app.listen(port, () => {
+  console.log(`Server berjalan di port ${port}`);
+});
